@@ -195,6 +195,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         prefs = getSharedPreferences("YapePrefs", Context.MODE_PRIVATE)
+        avisosYape = emptyList() // ✅ Empieza siempre limpio al abrir
         cargarAvisosGuardados()
         
         try { FirebaseApp.initializeApp(this) } catch (e: Exception) { }
@@ -219,8 +220,13 @@ class MainActivity : ComponentActivity() {
         db.child("pagos_esperando").addChildEventListener(object : ChildEventListener {
             override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
                 val datos = snapshot.value as? Map<*, *> ?: return
+                val idNuevo = snapshot.key ?: ""
+
+                // ✅ NO DUPLICA: Si ya existe, ignora
+                if (avisosYape.any { it.id == idNuevo }) return
+
                 val nuevo = AvisoYape(
-                    id = snapshot.key ?: "",
+                    id = idNuevo,
                     mac = datos["mac"]?.toString() ?: "Sin dato",
                     ip = datos["ip"]?.toString() ?: "Sin dato",
                     fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
@@ -312,7 +318,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 guardarAvisosGuardados()
-                delay(1000) // Actualiza cada 1 segundo IGUAL QUE EN EL MONEDERO
+                delay(1000) // Cada segundo, igual que el monedero
             }
         }
 
