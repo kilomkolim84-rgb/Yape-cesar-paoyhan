@@ -177,11 +177,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
 
     // ✅ NUEVO: ABRIR PANTALLA DE ACCESO A NOTIFICACIONES
-    private val irPermisoEscucha = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        Toast.makeText(this, "✅ Permiso concedido, ya puedo leer pagos de Yape", Toast.LENGTH_LONG).show()
-        startForegroundService(Intent(this, ServicioEscuchaYape::class.java))
-    }
-
     private val permisoNotificaciones = registerForActivityResult(ActivityResultContracts.RequestPermission()) { concedido ->
         if (concedido) {
             Toast.makeText(this, "✅ Permiso de avisos activado", Toast.LENGTH_SHORT).show()
@@ -316,23 +311,8 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // ✅ AHORA EL BOTÓN ABRE LA PANTALLA CORRECTA DIRECTAMENTE
-                Button(
-                    onClick = {
-                        Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").also { intent ->
-                            intent.data = Uri.parse("package:$packageName")
-                            irPermisoEscucha.launch(intent)
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("🔔 ACTIVAR PERMISO DE ESCUCHA", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
+                // ✅ AHORA EL BOTÓN ABRE LA PANTALLA CORRECTA DIRECTAMENT
+                
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Pagos / Solicitudes", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Button(
