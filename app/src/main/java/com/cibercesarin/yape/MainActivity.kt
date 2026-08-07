@@ -39,6 +39,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.*
+import kotlinx.coroutines.delay
 
 const val CLAVE_LIMPIAR_TODO = "123456"
 const val AVISOS_YAPE_GUARDADO = "avisos_yape_guardado"
@@ -48,7 +49,6 @@ const val ID_NOTIFICACION_SERVICIO = 54321
 const val ID_NOTIFICACION_NUEVO = 12345
 const val TIEMPO_INICIAL_ESPERA = 600L // 10 minutos en segundos
 
-// ✅ CORREGIDO: Faltaba coma al final de la línea anterior
 data class AvisoYape(
     val id: String = "",
     val mac: String = "",
@@ -190,8 +190,6 @@ class MainActivity : ComponentActivity() {
 
     private val db = FirebaseDatabase.getInstance().reference
     private var avisosYape by mutableStateOf(listOf<AvisoYape>())
-    private val cronometros = mutableMapOf<String, Any>()
-    private val tiemposCargados = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -227,7 +225,9 @@ class MainActivity : ComponentActivity() {
                     ip = datos["ip"]?.toString() ?: "Sin dato",
                     fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
                     nombre = datos["nombre"]?.toString() ?: "Cliente",
-                    monto = datos["monto"]?.toString() ?: "0.00"
+                    monto = datos["monto"]?.toString() ?: "0.00",
+                    tiempo_total_seg = TIEMPO_INICIAL_ESPERA,
+                    tiempo_restante_seg = TIEMPO_INICIAL_ESPERA
                 )
                 avisosYape = listOf(nuevo) + avisosYape
                 guardarAvisosGuardados()
@@ -278,19 +278,22 @@ class MainActivity : ComponentActivity() {
         if (texto.isNotEmpty()) {
             avisosYape = texto.split("|||").mapNotNull { linea ->
                 val campos = linea.split("§")
-                if (campos.size >= 6) AvisoYape(campos[0], campos[1], campos[2], campos[3], campos[4], campos[5]) else null
+                if (campos.size >= 8) AvisoYape(
+                    campos[0], campos[1], campos[2], campos[3], campos[4], campos[5],
+                    campos[6].toLongOrNull() ?: TIEMPO_INICIAL_ESPERA,
+                    campos[7].toLongOrNull() ?: TIEMPO_INICIAL_ESPERA
+                ) else null
             }
         }
     }
 
     private fun guardarAvisosGuardados() {
         val texto = avisosYape.joinToString("|||") { 
-            "${it.id}§${it.mac}§${it.ip}§${it.fecha_hora}§${it.nombre}§${it.monto}" 
+            "${it.id}§${it.mac}§${it.ip}§${it.fecha_hora}§${it.nombre}§${it.monto}§${it.tiempo_total_seg}§${it.tiempo_restante_seg}" 
         }
         prefs.edit().putString(AVISOS_YAPE_GUARDADO, texto).apply()
     }
 
-    // ✅ FUNCIÓN UBICADA CORRECTAMENTE FUERA DE LA INTERFAZ Y DENTRO DE LA CLASE
     private fun formatearTiempo(seg: Long): String {
         val minutos = seg / 60
         val segundos = seg % 60
@@ -299,6 +302,20 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun InterfazPrincipal() {
+        LaunchedEffect(Unit) {
+            while (true) {
+                avisosYape = avisosYape.map { aviso ->
+                    if (aviso.tiempo_restante_seg > 0) {
+                        aviso.copy(tiempo_restante_seg = aviso.tiempo_restante_seg - 1)
+                    } else {
+                        aviso
+                    }
+                }
+                guardarAvisosGuardados()
+                delay(1000) // Actualiza cada 1 segundo IGUAL QUE EN EL MONEDERO
+            }
+        }
+
         Scaffold(modifier = Modifier.fillMaxSize(), containerColor = Color(0xFFF5F5F5)) { relleno ->
             Column(
                 modifier = Modifier
@@ -361,6 +378,7 @@ class MainActivity : ComponentActivity() {
                                             val esPagoReal = aviso.monto != "0.00" && aviso.nombre != "Cliente"
                                             val titulo = if (esPagoReal) "✅ PAGO CONFIRMADO" else "⏳ ESPERANDO YAPE"
                                             val colorTitulo = if (esPagoReal) Color(0xFF2E7D32) else Color(0xFFFF9800)
+                                            val colorTiempo = if (aviso.tiempo_restante_seg > 60) Color(0xFF2E7D32) else Color(0xFFD32F2F)
 
                                             Text(titulo, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTitulo)
                                             Spacer(modifier = Modifier.height(4.dp))
@@ -369,6 +387,8 @@ class MainActivity : ComponentActivity() {
                                             Text("MAC: ${aviso.mac}", fontSize = 12.sp, color = Color.DarkGray)
                                             Text("IP: ${aviso.ip}", fontSize = 12.sp, color = Color.DarkGray)
                                             Text("Fecha: ${aviso.fecha_hora}", fontSize = 12.sp, color = Color.DarkGray)
+                                            Text("⏱️ Tiempo restante: ${formatearTiempo(aviso.tiempo_restante_seg)}", 
+                                                 fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorTiempo)
                                         }
                                         IconButton(onClick = { borrarUno(aviso.id) }) {
                                             Icon(
