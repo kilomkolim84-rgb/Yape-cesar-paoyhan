@@ -13,6 +13,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.Spinner
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -56,6 +59,7 @@ data class AvisoYape(
     val fecha_hora: String = "",
     val nombre: String = "",
     val monto: String = "",
+    val estado: String = "pendiente",
     val tiempo_total_seg: Long = TIEMPO_INICIAL_ESPERA,
     var tiempo_restante_seg: Long = TIEMPO_INICIAL_ESPERA
 )
@@ -195,7 +199,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         prefs = getSharedPreferences("YapePrefs", Context.MODE_PRIVATE)
-        avisosYape = emptyList() // ✅ Empieza siempre limpio al abrir
+        avisosYape = emptyList()
         cargarAvisosGuardados()
         
         try { FirebaseApp.initializeApp(this) } catch (e: Exception) { }
@@ -222,8 +226,10 @@ class MainActivity : ComponentActivity() {
                 val datos = snapshot.value as? Map<*, *> ?: return
                 val idNuevo = snapshot.key ?: ""
 
-                // ✅ NO DUPLICA: Si ya existe, ignora
                 if (avisosYape.any { it.id == idNuevo }) return
+
+                val tiempoTotal = (datos["tiempo_total_seg"] as? Long) ?: TIEMPO_INICIAL_ESPERA
+                val tiempoRestante = (datos["tiempo_restante_seg"] as? Long) ?: TIEMPO_INICIAL_ESPERA
 
                 val nuevo = AvisoYape(
                     id = idNuevo,
@@ -232,10 +238,36 @@ class MainActivity : ComponentActivity() {
                     fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
                     nombre = datos["nombre"]?.toString() ?: "Cliente",
                     monto = datos["monto"]?.toString() ?: "0.00",
-                    tiempo_total_seg = TIEMPO_INICIAL_ESPERA,
-                    tiempo_restante_seg = TIEMPO_INICIAL_ESPERA
+                    estado = datos["estado"]?.toString() ?: "pendiente",
+                    tiempo_total_seg = tiempoTotal,
+                    tiempo_restante_seg = tiempoRestante
                 )
                 avisosYape = listOf(nuevo) + avisosYape
+                guardarAvisosGuardados()
+            }
+
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {
+                val datos = snapshot.value as? Map<*, *> ?: return
+                val idActualizar = snapshot.key ?: ""
+                val index = avisosYape.indexOfFirst { it.id == idActualizar }
+                if (index == -1) return
+
+                val tiempoTotal = (datos["tiempo_total_seg"] as? Long) ?: TIEMPO_INICIAL_ESPERA
+                val tiempoRestante = (datos["tiempo_restante_seg"] as? Long) ?: TIEMPO_INICIAL_ESPERA
+
+                val actualizado = AvisoYape(
+                    id = idActualizar,
+                    mac = datos["mac"]?.toString() ?: "Sin dato",
+                    ip = datos["ip"]?.toString() ?: "Sin dato",
+                    fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
+                    nombre = datos["nombre"]?.toString() ?: "Cliente",
+                    monto = datos["monto"]?.toString() ?: "0.00",
+                    estado = datos["estado"]?.toString() ?: "pendiente",
+                    tiempo_total_seg = tiempoTotal,
+                    tiempo_restante_seg = tiempoRestante
+                )
+
+                avisosYape = avisosYape.toMutableList().apply { set(index, actualizado) }
                 guardarAvisosGuardados()
             }
 
@@ -245,10 +277,73 @@ class MainActivity : ComponentActivity() {
                 guardarAvisosGuardados()
             }
 
-            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
             override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
             override fun onCancelled(error: DatabaseError) {}
         })
+    }
+
+    private fun abrirVentanaConfirmar(aviso: AvisoYape) {
+        val vista = layoutInflater.inflate(android.R.layout.simple_spinner_item, null)
+        val campoNombre = EditText(this).apply {
+            hint = "Nombre del cliente"
+            setText(aviso.nombre)
+            setPadding(48, 24, 48, 16)
+        }
+
+        val opcionesTiempo = listOf(
+            "10 Minutos", "20 Minutos", "30 Minutos",
+            "1 Hora", "2 Horas", "4 Horas", "8 Horas", "24 Horas"
+        )
+        val spinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, opcionesTiempo)
+            setPadding(48, 16, 48, 16)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("✅ CONFIRMAR ACCESO")
+            .setMessage("Asigna nombre y tiempo para el cliente")
+            .setView(
+                androidx.compose.foundation.layout.Column(this).apply {
+                    addView(campoNombre)
+                    addView(spinner)
+                }
+            )
+            .setPositiveButton("CONFIRMAR Y ENVIAR") { _, _ ->
+                val nombreNuevo = campoNombre.text.toString().trim().ifEmpty { aviso.nombre }
+                val opcionElegida = spinner.selectedItem.toString()
+
+                // Convertimos la opción a segundos
+                val tiempoNuevo = when {
+                    opcionElegida.contains("10 Minutos") -> 600L
+                    opcionElegida.contains("20 Minutos") -> 1200L
+                    opcionElegida.contains("30 Minutos") -> 1800L
+                    opcionElegida.contains("1 Hora") -> 3600L
+                    opcionElegida.contains("2 Horas") -> 7200L
+                    opcionElegida.contains("4 Horas") -> 14400L
+                    opcionElegida.contains("8 Horas") -> 28800L
+                    opcionElegida.contains("24 Horas") -> 86400L
+                    else -> TIEMPO_INICIAL_ESPERA
+                }
+
+                // Actualizamos en Firebase para que MikroTik lo lea
+                val datosActualizar = mapOf(
+                    "nombre" to nombreNuevo,
+                    "estado" to "confirmado",
+                    "tiempo_total_seg" to tiempoNuevo,
+                    "tiempo_restante_seg" to tiempoNuevo,
+                    "fecha_confirmacion" to System.currentTimeMillis().toString()
+                )
+
+                db.child("pagos_esperando").child(aviso.id).updateChildren(datosActualizar)
+                    .addOnSuccessListener {
+                        Toast.makeText(this, "✅ Datos enviados. Tiempo: ${formatearTiempo(tiempoNuevo)}", Toast.LENGTH_LONG).show()
+                    }
+                    .addOnFailureListener {
+                        Toast.makeText(this, "❌ Error al enviar: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+            }
+            .setNegativeButton("CANCELAR", null)
+            .show()
     }
 
     private fun borrarUno(idAviso: String) {
@@ -256,7 +351,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun limpiarTodo() {
-        val campo = android.widget.EditText(this).apply {
+        val campo = EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
             filters = arrayOf(android.text.InputFilter.LengthFilter(6))
             setPadding(48, 16, 48, 16)
@@ -284,18 +379,18 @@ class MainActivity : ComponentActivity() {
         if (texto.isNotEmpty()) {
             avisosYape = texto.split("|||").mapNotNull { linea ->
                 val campos = linea.split("§")
-                if (campos.size >= 8) AvisoYape(
-                    campos[0], campos[1], campos[2], campos[3], campos[4], campos[5],
-                    campos[6].toLongOrNull() ?: TIEMPO_INICIAL_ESPERA,
-                    campos[7].toLongOrNull() ?: TIEMPO_INICIAL_ESPERA
+                if (campos.size >= 9) AvisoYape(
+                    campos[0], campos[1], campos[2], campos[3], campos[4], campos[5], campos[6],
+                    campos[7].toLongOrNull() ?: TIEMPO_INICIAL_ESPERA,
+                    campos[8].toLongOrNull() ?: TIEMPO_INICIAL_ESPERA
                 ) else null
             }
         }
     }
 
     private fun guardarAvisosGuardados() {
-        val texto = avisosYape.joinToString("|||") { 
-            "${it.id}§${it.mac}§${it.ip}§${it.fecha_hora}§${it.nombre}§${it.monto}§${it.tiempo_total_seg}§${it.tiempo_restante_seg}" 
+        val texto = avisosYape.joinToString("|||") {
+            "${it.id}§${it.mac}§${it.ip}§${it.fecha_hora}§${it.nombre}§${it.monto}§${it.estado}§${it.tiempo_total_seg}§${it.tiempo_restante_seg}"
         }
         prefs.edit().putString(AVISOS_YAPE_GUARDADO, texto).apply()
     }
@@ -318,7 +413,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 guardarAvisosGuardados()
-                delay(1000) // Cada segundo, igual que el monedero
+                delay(1000)
             }
         }
 
@@ -375,34 +470,52 @@ class MainActivity : ComponentActivity() {
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(Color(0xFFFFF9C4))
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.Top
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(12.dp)
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            val esPagoReal = aviso.monto != "0.00" && aviso.nombre != "Cliente"
-                                            val titulo = if (esPagoReal) "✅ PAGO CONFIRMADO" else "⏳ ESPERANDO YAPE"
-                                            val colorTitulo = if (esPagoReal) Color(0xFF2E7D32) else Color(0xFFFF9800)
-                                            val colorTiempo = if (aviso.tiempo_restante_seg > 60) Color(0xFF2E7D32) else Color(0xFFD32F2F)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                val esConfirmado = aviso.estado == "confirmado"
+                                                val titulo = if (esConfirmado) "✅ PAGO CONFIRMADO" else "⏳ ESPERANDO YAPE"
+                                                val colorTitulo = if (esConfirmado) Color(0xFF2E7D32) else Color(0xFFFF9800)
+                                                val colorTiempo = if (aviso.tiempo_restante_seg > 60) Color(0xFF2E7D32) else Color(0xFFD32F2F)
 
-                                            Text(titulo, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTitulo)
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text("Nombre: ${aviso.nombre}", fontSize = 13.sp, color = Color.DarkGray)
-                                            Text("Monto: S/ ${aviso.monto}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                                            Text("MAC: ${aviso.mac}", fontSize = 12.sp, color = Color.DarkGray)
-                                            Text("IP: ${aviso.ip}", fontSize = 12.sp, color = Color.DarkGray)
-                                            Text("Fecha: ${aviso.fecha_hora}", fontSize = 12.sp, color = Color.DarkGray)
-                                            Text("⏱️ Tiempo restante: ${formatearTiempo(aviso.tiempo_restante_seg)}", 
-                                                 fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorTiempo)
+                                                Text(titulo, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTitulo)
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("Nombre: ${aviso.nombre}", fontSize = 13.sp, color = Color.DarkGray)
+                                                Text("Monto: S/ ${aviso.monto}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                                Text("MAC: ${aviso.mac}", fontSize = 12.sp, color = Color.DarkGray)
+                                                Text("IP: ${aviso.ip}", fontSize = 12.sp, color = Color.DarkGray)
+                                                Text("Fecha: ${aviso.fecha_hora}", fontSize = 12.sp, color = Color.DarkGray)
+                                                Text("⏱️ Tiempo restante: ${formatearTiempo(aviso.tiempo_restante_seg)}",
+                                                    fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorTiempo)
+                                            }
+                                            IconButton(onClick = { borrarUno(aviso.id) }) {
+                                                Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Borrar",
+                                                    tint = Color(0xFFD32F2F),
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
                                         }
-                                        IconButton(onClick = { borrarUno(aviso.id) }) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "Borrar",
-                                                tint = Color(0xFFD32F2F),
-                                                modifier = Modifier.size(28.dp)
-                                            )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        // ✅ BOTÓN CONFIRMAR
+                                        if (!esConfirmado) {
+                                            Button(
+                                                onClick = { abrirVentanaConfirmar(aviso) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32)),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("✅ CONFIRMAR Y ASIGNAR TIEMPO", fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
                                 }
