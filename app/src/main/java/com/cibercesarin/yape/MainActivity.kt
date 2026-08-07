@@ -9,12 +9,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.media.RingtoneManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -282,12 +282,17 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    // ✅ FUNCIÓN CORREGIDA SIN ERRORES
     private fun abrirVentanaConfirmar(aviso: AvisoYape) {
-        val vista = layoutInflater.inflate(android.R.layout.simple_spinner_item, null)
+        val contenedor = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 16)
+        }
+
         val campoNombre = EditText(this).apply {
             hint = "Nombre del cliente"
             setText(aviso.nombre)
-            setPadding(48, 24, 48, 16)
+            setPadding(0, 16, 0, 16)
         }
 
         val opcionesTiempo = listOf(
@@ -296,23 +301,20 @@ class MainActivity : ComponentActivity() {
         )
         val spinner = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, opcionesTiempo)
-            setPadding(48, 16, 48, 16)
+            setPadding(0, 16, 0, 16)
         }
+
+        contenedor.addView(campoNombre)
+        contenedor.addView(spinner)
 
         AlertDialog.Builder(this)
             .setTitle("✅ CONFIRMAR ACCESO")
             .setMessage("Asigna nombre y tiempo para el cliente")
-            .setView(
-                androidx.compose.foundation.layout.Column(this).apply {
-                    addView(campoNombre)
-                    addView(spinner)
-                }
-            )
+            .setView(contenedor)
             .setPositiveButton("CONFIRMAR Y ENVIAR") { _, _ ->
                 val nombreNuevo = campoNombre.text.toString().trim().ifEmpty { aviso.nombre }
                 val opcionElegida = spinner.selectedItem.toString()
 
-                // Convertimos la opción a segundos
                 val tiempoNuevo = when {
                     opcionElegida.contains("10 Minutos") -> 600L
                     opcionElegida.contains("20 Minutos") -> 1200L
@@ -325,7 +327,6 @@ class MainActivity : ComponentActivity() {
                     else -> TIEMPO_INICIAL_ESPERA
                 }
 
-                // Actualizamos en Firebase para que MikroTik lo lea
                 val datosActualizar = mapOf(
                     "nombre" to nombreNuevo,
                     "estado" to "confirmado",
@@ -465,6 +466,7 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             items(avisosYape) { aviso ->
+                                val esConfirmado = aviso.estado == "confirmado"
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                     shape = RoundedCornerShape(8.dp),
@@ -479,7 +481,6 @@ class MainActivity : ComponentActivity() {
                                             verticalAlignment = Alignment.Top
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
-                                                val esConfirmado = aviso.estado == "confirmado"
                                                 val titulo = if (esConfirmado) "✅ PAGO CONFIRMADO" else "⏳ ESPERANDO YAPE"
                                                 val colorTitulo = if (esConfirmado) Color(0xFF2E7D32) else Color(0xFFFF9800)
                                                 val colorTiempo = if (aviso.tiempo_restante_seg > 60) Color(0xFF2E7D32) else Color(0xFFD32F2F)
@@ -506,7 +507,6 @@ class MainActivity : ComponentActivity() {
 
                                         Spacer(modifier = Modifier.height(8.dp))
 
-                                        // ✅ BOTÓN CONFIRMAR
                                         if (!esConfirmado) {
                                             Button(
                                                 onClick = { abrirVentanaConfirmar(aviso) },
