@@ -48,13 +48,14 @@ const val ID_NOTIFICACION_SERVICIO = 54321
 const val ID_NOTIFICACION_NUEVO = 12345
 const val TIEMPO_INICIAL_ESPERA = 600L // 10 minutos en segundos
 
+// ✅ CORREGIDO: Faltaba coma al final de la línea anterior
 data class AvisoYape(
     val id: String = "",
     val mac: String = "",
     val ip: String = "",
     val fecha_hora: String = "",
     val nombre: String = "",
-    val monto: String = ""
+    val monto: String = "",
     val tiempo_total_seg: Long = TIEMPO_INICIAL_ESPERA,
     var tiempo_restante_seg: Long = TIEMPO_INICIAL_ESPERA
 )
@@ -179,7 +180,6 @@ class ServicioEscuchaYape : Service() {
 class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
 
-    // ✅ NUEVO: ABRIR PANTALLA DE ACCESO A NOTIFICACIONES
     private val permisoNotificaciones = registerForActivityResult(ActivityResultContracts.RequestPermission()) { concedido ->
         if (concedido) {
             Toast.makeText(this, "✅ Permiso de avisos activado", Toast.LENGTH_SHORT).show()
@@ -290,6 +290,13 @@ class MainActivity : ComponentActivity() {
         prefs.edit().putString(AVISOS_YAPE_GUARDADO, texto).apply()
     }
 
+    // ✅ FUNCIÓN UBICADA CORRECTAMENTE FUERA DE LA INTERFAZ Y DENTRO DE LA CLASE
+    private fun formatearTiempo(seg: Long): String {
+        val minutos = seg / 60
+        val segundos = seg % 60
+        return "%02d:%02d".format(minutos, segundos)
+    }
+
     @Composable
     fun InterfazPrincipal() {
         Scaffold(modifier = Modifier.fillMaxSize(), containerColor = Color(0xFFF5F5F5)) { relleno ->
@@ -316,8 +323,6 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // ✅ AHORA EL BOTÓN ABRE LA PANTALLA CORRECTA DIRECTAMENT
-                
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Pagos / Solicitudes", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Button(
@@ -381,10 +386,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-            private fun formatearTiempo(seg: Long): String {
-        val minutos = seg / 60
-        val segundos = seg % 60
-        return "%02d:%02d".format(minutos, segundos)
     }
-}
 }
