@@ -46,6 +46,7 @@ const val CANAL_SERVICIO = "canal_yape_servicio"
 const val CANAL_ALERTAS = "canal_yape_alertas"
 const val ID_NOTIFICACION_SERVICIO = 54321
 const val ID_NOTIFICACION_NUEVO = 12345
+const val TIEMPO_INICIAL_ESPERA = 600L // 10 minutos en segundos
 
 data class AvisoYape(
     val id: String = "",
@@ -54,6 +55,8 @@ data class AvisoYape(
     val fecha_hora: String = "",
     val nombre: String = "",
     val monto: String = ""
+    val tiempo_total_seg: Long = TIEMPO_INICIAL_ESPERA,
+    var tiempo_restante_seg: Long = TIEMPO_INICIAL_ESPERA
 )
 
 class ServicioEscuchaYape : Service() {
@@ -187,6 +190,8 @@ class MainActivity : ComponentActivity() {
 
     private val db = FirebaseDatabase.getInstance().reference
     private var avisosYape by mutableStateOf(listOf<AvisoYape>())
+    private val cronometros = mutableMapOf<String, Any>()
+    private val tiemposCargados = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -376,5 +381,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+            private fun formatearTiempo(seg: Long): String {
+        val minutos = seg / 60
+        val segundos = seg % 60
+        return "%02d:%02d".format(minutos, segundos)
     }
+}
 }
