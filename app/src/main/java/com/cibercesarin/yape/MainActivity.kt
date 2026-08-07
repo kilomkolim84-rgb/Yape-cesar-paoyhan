@@ -75,7 +75,7 @@ class ServicioEscuchaYape : Service() {
         val notificacionFija = NotificationCompat.Builder(this, CANAL_SERVICIO)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentTitle("YAPE - CIBER CESARÍN")
-            .setContentText("✅ Esperando pagos y solicitudes...")
+            .setContentText("✅ Esperando conexiones y pagos...")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOngoing(true)
             .setShowWhen(false)
@@ -105,15 +105,15 @@ class ServicioEscuchaYape : Service() {
                 "Servicio Activo",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Mantiene la app escuchando"
+                description = "Mantiene la app escuchando siempre"
             }
 
             val canalAlertas = NotificationChannel(
                 CANAL_ALERTAS,
-                "Avisos de Pago",
+                "Avisos de Entrada",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Avisa cuando llega un Yape"
+                description = "Avisa cuando llega un usuario nuevo"
                 enableVibration(true)
                 setSound(sonidoYape, null)
             }
@@ -132,16 +132,16 @@ class ServicioEscuchaYape : Service() {
                 val mac = datos["mac"]?.toString() ?: "Sin dato"
                 val ip = datos["ip"]?.toString() ?: "Sin dato"
                 val fecha = datos["fecha_hora"]?.toString() ?: "Sin fecha"
-                val nombre = datos["nombre"]?.toString() ?: "Cliente sin nombre"
-                val monto = datos["monto"]?.toString() ?: "0.00"
+                val nombre = datos["nombre"]?.toString() ?: "Usuario Entrante"
+                val monto = datos["monto"]?.toString() ?: ""
 
-                val avisoPago = NotificationCompat.Builder(this@ServicioEscuchaYape, CANAL_ALERTAS)
+                val avisoEntrada = NotificationCompat.Builder(this@ServicioEscuchaYape, CANAL_ALERTAS)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle("🔔 ¡YAPA, YAPA! LLEGÓ UN PAGO")
-                    .setContentText("$nombre - S/ $monto")
+                    .setContentTitle("🔔 CONEXIÓN ENTRANTE")
+                    .setContentText("$nombre - IP: $ip")
                     .setStyle(
                         NotificationCompat.BigTextStyle()
-                            .bigText("Nombre: $nombre\nMonto: S/ $monto\nMAC: $mac\nIP: $ip\nFecha: $fecha")
+                            .bigText("Nombre: $nombre\nMAC: $mac\nIP: $ip\nFecha: $fecha")
                     )
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
@@ -161,7 +161,7 @@ class ServicioEscuchaYape : Service() {
                     ) == PackageManager.PERMISSION_GRANTED
                 ) {
                     NotificationManagerCompat.from(this@ServicioEscuchaYape)
-                        .notify(ID_NOTIFICACION_NUEVO + id.hashCode(), avisoPago)
+                        .notify(ID_NOTIFICACION_NUEVO + id.hashCode(), avisoEntrada)
                 }
             }
 
@@ -236,8 +236,8 @@ class MainActivity : ComponentActivity() {
                     mac = datos["mac"]?.toString() ?: "Sin dato",
                     ip = datos["ip"]?.toString() ?: "Sin dato",
                     fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
-                    nombre = datos["nombre"]?.toString() ?: "Cliente",
-                    monto = datos["monto"]?.toString() ?: "0.00",
+                    nombre = datos["nombre"]?.toString() ?: "Usuario Entrante",
+                    monto = datos["monto"]?.toString() ?: "",
                     estado = datos["estado"]?.toString() ?: "pendiente",
                     tiempo_total_seg = tiempoTotal,
                     tiempo_restante_seg = tiempoRestante
@@ -260,8 +260,8 @@ class MainActivity : ComponentActivity() {
                     mac = datos["mac"]?.toString() ?: "Sin dato",
                     ip = datos["ip"]?.toString() ?: "Sin dato",
                     fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
-                    nombre = datos["nombre"]?.toString() ?: "Cliente",
-                    monto = datos["monto"]?.toString() ?: "0.00",
+                    nombre = datos["nombre"]?.toString() ?: "Usuario Entrante",
+                    monto = datos["monto"]?.toString() ?: "",
                     estado = datos["estado"]?.toString() ?: "pendiente",
                     tiempo_total_seg = tiempoTotal,
                     tiempo_restante_seg = tiempoRestante
@@ -282,15 +282,15 @@ class MainActivity : ComponentActivity() {
         })
     }
 
-    // ✅ FUNCIÓN CORREGIDA SIN ERRORES
     private fun abrirVentanaConfirmar(aviso: AvisoYape) {
         val contenedor = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 24, 48, 16)
         }
 
+        // ✅ El nombre que tú escribas es el que manda, reemplaza cualquier otro
         val campoNombre = EditText(this).apply {
-            hint = "Nombre del cliente"
+            hint = "Escribe nombre del cliente"
             setText(aviso.nombre)
             setPadding(0, 16, 0, 16)
         }
@@ -309,10 +309,11 @@ class MainActivity : ComponentActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("✅ CONFIRMAR ACCESO")
-            .setMessage("Asigna nombre y tiempo para el cliente")
+            .setMessage("Escribe el nombre real y asigna el tiempo")
             .setView(contenedor)
-            .setPositiveButton("CONFIRMAR Y ENVIAR") { _, _ ->
-                val nombreNuevo = campoNombre.text.toString().trim().ifEmpty { aviso.nombre }
+            .setPositiveButton("GUARDAR Y ENVIAR") { _, _ ->
+                // ✅ Lo que escribas tú es lo que se guarda, no importa lo que venía antes
+                val nombreFinal = campoNombre.text.toString().trim().ifBlank { "Sin nombre" }
                 val opcionElegida = spinner.selectedItem.toString()
 
                 val tiempoNuevo = when {
@@ -328,7 +329,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val datosActualizar = mapOf(
-                    "nombre" to nombreNuevo,
+                    "nombre" to nombreFinal,
                     "estado" to "confirmado",
                     "tiempo_total_seg" to tiempoNuevo,
                     "tiempo_restante_seg" to tiempoNuevo,
@@ -337,10 +338,10 @@ class MainActivity : ComponentActivity() {
 
                 db.child("pagos_esperando").child(aviso.id).updateChildren(datosActualizar)
                     .addOnSuccessListener {
-                        Toast.makeText(this, "✅ Datos enviados. Tiempo: ${formatearTiempo(tiempoNuevo)}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "✅ Guardado: $nombreFinal - Tiempo: ${formatearTiempo(tiempoNuevo)}", Toast.LENGTH_LONG).show()
                     }
                     .addOnFailureListener {
-                        Toast.makeText(this, "❌ Error al enviar: ${it.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "❌ Error: ${it.message}", Toast.LENGTH_LONG).show()
                     }
             }
             .setNegativeButton("CANCELAR", null)
@@ -360,13 +361,13 @@ class MainActivity : ComponentActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("⚠️ BORRAR TODOS")
-            .setMessage("Escribe la clave:")
+            .setMessage("Escribe la clave de 6 dígitos:")
             .setView(campo)
             .setPositiveButton("CONFIRMAR") { _, _ ->
                 val entrada = campo.text.toString()
                 if (entrada == CLAVE_LIMPIAR_TODO) {
                     db.child("pagos_esperando").removeValue()
-                    Toast.makeText(this, "✅ Todo limpiado", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "✅ Todo limpiado correctamente", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(this, "❌ Clave incorrecta", Toast.LENGTH_SHORT).show()
                 }
@@ -443,7 +444,7 @@ class MainActivity : ComponentActivity() {
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Pagos / Solicitudes", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Conexiones / Solicitudes", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Button(
                         onClick = { limpiarTodo() },
                         colors = ButtonDefaults.buttonColors(Color(0xFFD32F2F)),
@@ -461,7 +462,7 @@ class MainActivity : ComponentActivity() {
                         if (avisosYape.isEmpty()) {
                             item {
                                 Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("✅ Sin solicitudes pendientes", fontSize = 15.sp, color = Color.Gray)
+                                    Text("✅ Sin conexiones pendientes", fontSize = 15.sp, color = Color.Gray)
                                 }
                             }
                         } else {
@@ -481,14 +482,16 @@ class MainActivity : ComponentActivity() {
                                             verticalAlignment = Alignment.Top
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
-                                                val titulo = if (esConfirmado) "✅ PAGO CONFIRMADO" else "⏳ ESPERANDO YAPE"
+                                                val titulo = if (esConfirmado) "✅ ACCESO CONFIRMADO" else "⏳ CONEXIÓN ENTRANTE"
                                                 val colorTitulo = if (esConfirmado) Color(0xFF2E7D32) else Color(0xFFFF9800)
                                                 val colorTiempo = if (aviso.tiempo_restante_seg > 60) Color(0xFF2E7D32) else Color(0xFFD32F2F)
 
                                                 Text(titulo, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTitulo)
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text("Nombre: ${aviso.nombre}", fontSize = 13.sp, color = Color.DarkGray)
-                                                Text("Monto: S/ ${aviso.monto}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                                // ✅ No muestra ceros, solo pendiente si no hay monto
+                                                val textoMonto = if (aviso.monto.isBlank() || aviso.monto == "0.00") "Pendiente de pago" else "S/ ${aviso.monto}"
+                                                Text("Estado: $textoMonto", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (esConfirmado) Color(0xFF2E7D32) else Color.DarkGray)
                                                 Text("MAC: ${aviso.mac}", fontSize = 12.sp, color = Color.DarkGray)
                                                 Text("IP: ${aviso.ip}", fontSize = 12.sp, color = Color.DarkGray)
                                                 Text("Fecha: ${aviso.fecha_hora}", fontSize = 12.sp, color = Color.DarkGray)
@@ -514,7 +517,7 @@ class MainActivity : ComponentActivity() {
                                                 colors = ButtonDefaults.buttonColors(Color(0xFF2E7D32)),
                                                 shape = RoundedCornerShape(8.dp)
                                             ) {
-                                                Text("✅ CONFIRMAR Y ASIGNAR TIEMPO", fontWeight = FontWeight.Bold)
+                                                Text("✅ PONER NOMBRE Y ASIGNAR TIEMPO", fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
