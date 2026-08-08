@@ -504,11 +504,11 @@ class MainActivity : ComponentActivity() {
                                                 }
 
                                                 val textoEstado = when {
-                                                    tiempoVencido -> "⏱️ TIEMPO VENCIDO"
-                                                    esConfirmado -> "✅ Acceso activo"
+                                                    tiempoVencido -> "⏱ TIEMPO VENCIDO"
+                                                    esConfirmado -> "✅ Pagado"  // ← ESTA LÍNEA NUEVA VA ARRIBA
                                                     aviso.monto.isBlank() || aviso.monto == "0.00" -> "Pendiente de pago"
                                                     else -> "S/ ${aviso.monto}"
-                                                }
+                                               }
                                                 val colorEstado = when {
                                                     tiempoVencido -> Color(0xFFB71C1C)
                                                     esConfirmado -> Color(0xFF2E7D32)
