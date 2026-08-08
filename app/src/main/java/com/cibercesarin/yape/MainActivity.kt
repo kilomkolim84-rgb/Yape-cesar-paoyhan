@@ -133,7 +133,6 @@ class ServicioEscuchaYape : Service() {
                 val ip = datos["ip"]?.toString() ?: "Sin dato"
                 val fecha = datos["fecha_hora"]?.toString() ?: "Sin fecha"
                 val nombre = datos["nombre"]?.toString() ?: "Usuario Entrante"
-                val monto = datos["monto"]?.toString() ?: ""
 
                 val avisoEntrada = NotificationCompat.Builder(this@ServicioEscuchaYape, CANAL_ALERTAS)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -288,7 +287,6 @@ class MainActivity : ComponentActivity() {
             setPadding(48, 24, 48, 16)
         }
 
-        // ✅ El nombre que tú escribas es el que manda, reemplaza cualquier otro
         val campoNombre = EditText(this).apply {
             hint = "Escribe nombre del cliente"
             setText(aviso.nombre)
@@ -312,7 +310,6 @@ class MainActivity : ComponentActivity() {
             .setMessage("Escribe el nombre real y asigna el tiempo")
             .setView(contenedor)
             .setPositiveButton("GUARDAR Y ENVIAR") { _, _ ->
-                // ✅ Lo que escribas tú es lo que se guarda, no importa lo que venía antes
                 val nombreFinal = campoNombre.text.toString().trim().ifBlank { "Sin nombre" }
                 val opcionElegida = spinner.selectedItem.toString()
 
@@ -468,10 +465,18 @@ class MainActivity : ComponentActivity() {
                         } else {
                             items(avisosYape) { aviso ->
                                 val esConfirmado = aviso.estado == "confirmado"
+                                val tiempoVencido = aviso.tiempo_restante_seg <= 0L
+
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                     shape = RoundedCornerShape(8.dp),
-                                    colors = CardDefaults.cardColors(Color(0xFFFFF9C4))
+                                    colors = CardDefaults.cardColors(
+                                        when {
+                                            tiempoVencido -> Color(0xFFFFEBEE)
+                                            esConfirmado -> Color(0xFFE8F5E9)
+                                            else -> Color(0xFFFFF9C4)
+                                        }
+                                    )
                                 ) {
                                     Column(
                                         modifier = Modifier.fillMaxWidth().padding(12.dp)
@@ -482,16 +487,38 @@ class MainActivity : ComponentActivity() {
                                             verticalAlignment = Alignment.Top
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
-                                                val titulo = if (esConfirmado) "✅ ACCESO CONFIRMADO" else "⏳ CONEXIÓN ENTRANTE"
-                                                val colorTitulo = if (esConfirmado) Color(0xFF2E7D32) else Color(0xFFFF9800)
-                                                val colorTiempo = if (aviso.tiempo_restante_seg > 60) Color(0xFF2E7D32) else Color(0xFFD32F2F)
+                                                val titulo = when {
+                                                    tiempoVencido -> "❌ TIEMPO VENCIDO"
+                                                    esConfirmado -> "✅ ACCESO CONFIRMADO"
+                                                    else -> "⏳ CONEXIÓN ENTRANTE"
+                                                }
+                                                val colorTitulo = when {
+                                                    tiempoVencido -> Color(0xFFB71C1C)
+                                                    esConfirmado -> Color(0xFF2E7D32)
+                                                    else -> Color(0xFFFF9800)
+                                                }
+                                                val colorTiempo = when {
+                                                    tiempoVencido -> Color(0xFFB71C1C)
+                                                    aviso.tiempo_restante_seg <= 60 -> Color(0xFFD32F2F)
+                                                    else -> Color(0xFF2E7D32)
+                                                }
+
+                                                val textoEstado = when {
+                                                    tiempoVencido -> "⏱️ TIEMPO VENCIDO"
+                                                    esConfirmado -> "✅ Acceso activo"
+                                                    aviso.monto.isBlank() || aviso.monto == "0.00" -> "Pendiente de pago"
+                                                    else -> "S/ ${aviso.monto}"
+                                                }
+                                                val colorEstado = when {
+                                                    tiempoVencido -> Color(0xFFB71C1C)
+                                                    esConfirmado -> Color(0xFF2E7D32)
+                                                    else -> Color.DarkGray
+                                                }
 
                                                 Text(titulo, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorTitulo)
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text("Nombre: ${aviso.nombre}", fontSize = 13.sp, color = Color.DarkGray)
-                                                // ✅ No muestra ceros, solo pendiente si no hay monto
-                                                val textoMonto = if (aviso.monto.isBlank() || aviso.monto == "0.00") "Pendiente de pago" else "S/ ${aviso.monto}"
-                                                Text("Estado: $textoMonto", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (esConfirmado) Color(0xFF2E7D32) else Color.DarkGray)
+                                                Text("Estado: $textoEstado", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorEstado)
                                                 Text("MAC: ${aviso.mac}", fontSize = 12.sp, color = Color.DarkGray)
                                                 Text("IP: ${aviso.ip}", fontSize = 12.sp, color = Color.DarkGray)
                                                 Text("Fecha: ${aviso.fecha_hora}", fontSize = 12.sp, color = Color.DarkGray)
@@ -510,7 +537,7 @@ class MainActivity : ComponentActivity() {
 
                                         Spacer(modifier = Modifier.height(8.dp))
 
-                                        if (!esConfirmado) {
+                                        if (!esConfirmado && !tiempoVencido) {
                                             Button(
                                                 onClick = { abrirVentanaConfirmar(aviso) },
                                                 modifier = Modifier.fillMaxWidth(),
