@@ -46,11 +46,14 @@ import kotlinx.coroutines.delay
 
 const val CLAVE_LIMPIAR_TODO = "123456"
 const val AVISOS_YAPE_GUARDADO = "avisos_yape_guardado"
+const val ENLACES_CAIDOS_GUARDADO = "enlaces_caidos_guardado"
 const val CANAL_SERVICIO = "canal_yape_servicio"
 const val CANAL_ALERTAS = "canal_yape_alertas"
+const val CANAL_ENLACES = "canal_enlaces_caidos"
 const val ID_NOTIFICACION_SERVICIO = 54321
 const val ID_NOTIFICACION_NUEVO = 12345
-const val TIEMPO_INICIAL_ESPERA = 600L // 10 minutos en segundos
+const val ID_NOTIFICACION_ENLACE = 98765
+const val TIEMPO_INICIAL_ESPERA = 600L
 
 data class AvisoYape(
     val id: String = "",
@@ -64,9 +67,18 @@ data class AvisoYape(
     var tiempo_restante_seg: Long = TIEMPO_INICIAL_ESPERA
 )
 
+// ✅ NUEVO: Modelo para enlaces caídos
+data class EnlaceCaido(
+    val id: String = "",
+    val canal: String = "",
+    val fecha_hora: String = "",
+    val visto: Boolean = false
+)
+
 class ServicioEscuchaYape : Service() {
     private lateinit var db: DatabaseReference
-    private var escucha: ChildEventListener? = null
+    private var escuchaPagos: ChildEventListener? = null
+    private var escuchaEnlaces: ChildEventListener? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -94,6 +106,7 @@ class ServicioEscuchaYape : Service() {
         db = FirebaseDatabase.getInstance().reference
         db.keepSynced(true)
         escucharNuevosPagos()
+        escucharEnlacesCaidos() // ✅ NUEVO
     }
 
     private fun crearCanalesNotificaciones() {
@@ -118,14 +131,26 @@ class ServicioEscuchaYape : Service() {
                 setSound(sonidoYape, null)
             }
 
+            // ✅ NUEVO: Canal para enlaces caídos
+            val canalEnlaces = NotificationChannel(
+                CANAL_ENLACES,
+                "Enlaces Caídos",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Avisa cuando una transmisión falla"
+                enableVibration(true)
+                setSound(sonidoYape, null)
+            }
+
             val gestor = getSystemService(NotificationManager::class.java)
             gestor.createNotificationChannel(canalServicio)
             gestor.createNotificationChannel(canalAlertas)
+            gestor.createNotificationChannel(canalEnlaces)
         }
     }
 
     private fun escucharNuevosPagos() {
-        escucha = object : ChildEventListener {
+        escuchaPagos = object : ChildEventListener {
             override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
                 val datos = snapshot.value as? Map<*, *> ?: return
                 val id = snapshot.key ?: ""
@@ -169,14 +194,62 @@ class ServicioEscuchaYape : Service() {
             override fun onChildRemoved(snapshot: DataSnapshot) {}
             override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
         }
-        db.child("pagos_esperando").addChildEventListener(escucha!!)
+        db.child("pagos_esperando").addChildEventListener(escuchaPagos!!)
+    }
+
+    // ✅ NUEVO: Escucha de enlaces caídos
+    private fun escucharEnlacesCaidos() {
+        escuchaEnlaces = object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
+                val datos = snapshot.value as? Map<*, *> ?: return
+                val id = snapshot.key ?: ""
+                val canal = datos["canal"]?.toString() ?: "Canal desconocido"
+                val fecha = datos["fecha_hora"]?.toString() ?: "Sin fecha"
+
+                val avisoEnlace = NotificationCompat.Builder(this@ServicioEscuchaYape, CANAL_ENLACES)
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setContentTitle("⚠️ ENLACE CAÍDO")
+                    .setContentText("$canal - $fecha")
+                    .setStyle(
+                        NotificationCompat.BigTextStyle()
+                            .bigText("Transmisión fallida: $canal\nReportado el: $fecha")
+                    )
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setAutoCancel(true)
+                    .setContentIntent(
+                        PendingIntent.getActivity(
+                            this@ServicioEscuchaYape,
+                            ("enlace_$id").hashCode(),
+                            Intent(this@ServicioEscuchaYape, MainActivity::class.java),
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                    )
+                    .build()
+
+                if (ContextCompat.checkSelfPermission(
+                        this@ServicioEscuchaYape,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    NotificationManagerCompat.from(this@ServicioEscuchaYape)
+                        .notify(ID_NOTIFICACION_ENLACE + id.hashCode(), avisoEnlace)
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+        }
+        db.child("enlaces_caidos").addChildEventListener(escuchaEnlaces!!)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
-        escucha?.let { db.child("pagos_esperando").removeEventListener(it) }
+        escuchaPagos?.let { db.child("pagos_esperando").removeEventListener(it) }
+        escuchaEnlaces?.let { db.child("enlaces_caidos").removeEventListener(it) }
     }
 }
 
@@ -193,19 +266,23 @@ class MainActivity : ComponentActivity() {
 
     private val db = FirebaseDatabase.getInstance().reference
     private var avisosYape by mutableStateOf(listOf<AvisoYape>())
+    private var enlacesCaidos by mutableStateOf(listOf<EnlaceCaido>()) // ✅ NUEVO
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         prefs = getSharedPreferences("YapePrefs", Context.MODE_PRIVATE)
         avisosYape = emptyList()
+        enlacesCaidos = emptyList()
         cargarAvisosGuardados()
+        cargarEnlacesGuardados()
         
         try { FirebaseApp.initializeApp(this) } catch (e: Exception) { }
         db.keepSynced(true)
 
         pedirPermisosYActivarServicio()
         escucharListaEnTiempoReal()
+        escucharEnlacesCaidosEnApp() // ✅ NUEVO
         
         setContent { InterfazPrincipal() }
     }
@@ -224,7 +301,6 @@ class MainActivity : ComponentActivity() {
             override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
                 val datos = snapshot.value as? Map<*, *> ?: return
                 val idNuevo = snapshot.key ?: ""
-
                 if (avisosYape.any { it.id == idNuevo }) return
 
                 val tiempoTotal = (datos["tiempo_total_seg"] as? Long) ?: TIEMPO_INICIAL_ESPERA
@@ -265,7 +341,6 @@ class MainActivity : ComponentActivity() {
                     tiempo_total_seg = tiempoTotal,
                     tiempo_restante_seg = tiempoRestante
                 )
-
                 avisosYape = avisosYape.toMutableList().apply { set(index, actualizado) }
                 guardarAvisosGuardados()
             }
@@ -279,6 +354,48 @@ class MainActivity : ComponentActivity() {
             override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
             override fun onCancelled(error: DatabaseError) {}
         })
+    }
+
+    // ✅ NUEVO: Escucha enlaces caídos para la pantalla
+    private fun escucharEnlacesCaidosEnApp() {
+        db.child("enlaces_caidos").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val lista = mutableListOf<EnlaceCaido>()
+                for (hijo in snapshot.children) {
+                    val datos = hijo.value as? Map<*, *> ?: continue
+                    lista.add(
+                        EnlaceCaido(
+                            id = hijo.key ?: "",
+                            canal = datos["canal"]?.toString() ?: "Canal desconocido",
+                            fecha_hora = datos["fecha_hora"]?.toString() ?: "Sin fecha",
+                            visto = (datos["visto"] as? Boolean) ?: false
+                        )
+                    )
+                }
+                enlacesCaidos = lista
+                guardarEnlacesGuardados()
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    // ✅ NUEVO: Borrar enlace caído
+    private fun borrarEnlaceCaido(id: String) {
+        db.child("enlaces_caidos").child(id).removeValue()
+    }
+
+    // ✅ NUEVO: Borrar todos los enlaces caídos
+    private fun limpiarEnlacesCaidos() {
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ BORRAR ENLACES CAÍDOS")
+            .setMessage("¿Borrar todos los avisos de transmisiones fallidas?")
+            .setPositiveButton("BORRAR") { _, _ ->
+                db.child("enlaces_caidos").removeValue()
+                Toast.makeText(this, "✅ Enlaces limpiados", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("CANCELAR", null)
+            .show()
     }
 
     private fun abrirVentanaConfirmar(aviso: AvisoYape) {
@@ -387,11 +504,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ✅ NUEVO: Guardar/cargar enlaces caídos localmente
+    private fun cargarEnlacesGuardados() {
+        val texto = prefs.getString(ENLACES_CAIDOS_GUARDADO, "") ?: ""
+        if (texto.isNotEmpty()) {
+            enlacesCaidos = texto.split("|||").mapNotNull { linea ->
+                val campos = linea.split("§")
+                if (campos.size >= 3) EnlaceCaido(
+                    campos[0], campos[1], campos[2], campos.getOrNull(3)?.toBooleanStrictOrNull() ?: false
+                ) else null
+            }
+        }
+    }
+
     private fun guardarAvisosGuardados() {
         val texto = avisosYape.joinToString("|||") {
             "${it.id}§${it.mac}§${it.ip}§${it.fecha_hora}§${it.nombre}§${it.monto}§${it.estado}§${it.tiempo_total_seg}§${it.tiempo_restante_seg}"
         }
         prefs.edit().putString(AVISOS_YAPE_GUARDADO, texto).apply()
+    }
+
+    private fun guardarEnlacesGuardados() {
+        val texto = enlacesCaidos.joinToString("|||") {
+            "${it.id}§${it.canal}§${it.fecha_hora}§${it.visto}"
+        }
+        prefs.edit().putString(ENLACES_CAIDOS_GUARDADO, texto).apply()
     }
 
     private fun formatearTiempo(seg: Long): String {
@@ -432,6 +569,7 @@ class MainActivity : ComponentActivity() {
                     Text("YAPE - CIBER CESARÍN", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A237E))
                     IconButton(onClick = {
                         cargarAvisosGuardados()
+                        cargarEnlacesGuardados()
                         Toast.makeText(this@MainActivity, "🔄 Actualizado", Toast.LENGTH_SHORT).show()
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Actualizar", tint = Color(0xFF1976D2))
@@ -439,6 +577,48 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
+
+                // ✅ NUEVO: Tarjetas de enlaces caídos ARRIBA DE TODO
+                if (enlacesCaidos.isNotEmpty()) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("⚠️ TRANSMISIONES CAÍDAS", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB71C1C))
+                        Button(
+                            onClick = { limpiarEnlacesCaidos() },
+                            colors = ButtonDefaults.buttonColors(Color(0xFFB71C1C)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("LIMPIAR", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    enlacesCaidos.forEach { enlace ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(Color(0xFFFFEBEE))
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("⚠️ ENLACE CAÍDO", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB71C1C))
+                                    Text("Canal: ${enlace.canal}", fontSize = 13.sp, color = Color.DarkGray)
+                                    Text("Fecha: ${enlace.fecha_hora}", fontSize = 12.sp, color = Color.Gray)
+                                }
+                                IconButton(onClick = { borrarEnlaceCaido(enlace.id) }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Borrar", tint = Color(0xFFB71C1C))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Divider()
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Conexiones / Solicitudes", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -478,9 +658,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(12.dp)
-                                    ) {
+                                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -505,10 +683,10 @@ class MainActivity : ComponentActivity() {
 
                                                 val textoEstado = when {
                                                     tiempoVencido -> "⏱ TIEMPO VENCIDO"
-                                                    esConfirmado -> "✅ Pagado"  // ← ESTA LÍNEA NUEVA VA ARRIBA
+                                                    esConfirmado -> "✅ Pagado"
                                                     aviso.monto.isBlank() || aviso.monto == "0.00" -> "Pendiente de pago"
                                                     else -> "S/ ${aviso.monto}"
-                                               }
+                                                }
                                                 val colorEstado = when {
                                                     tiempoVencido -> Color(0xFFB71C1C)
                                                     esConfirmado -> Color(0xFF2E7D32)
