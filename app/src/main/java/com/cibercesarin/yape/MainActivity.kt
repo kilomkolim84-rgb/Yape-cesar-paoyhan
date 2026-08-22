@@ -8,7 +8,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.media.RingtoneManager
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -67,7 +68,6 @@ data class AvisoYape(
     var tiempo_restante_seg: Long = TIEMPO_INICIAL_ESPERA
 )
 
-// ✅ NUEVO: Modelo para enlaces caídos
 data class EnlaceCaido(
     val id: String = "",
     val canal: String = "",
@@ -106,12 +106,17 @@ class ServicioEscuchaYape : Service() {
         db = FirebaseDatabase.getInstance().reference
         db.keepSynced(true)
         escucharNuevosPagos()
-        escucharEnlacesCaidos() // ✅ NUEVO
+        escucharEnlacesCaidos()
     }
 
     private fun crearCanalesNotificaciones() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val sonidoYape = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            // ✅ TU SONIDO PERSONALIZADO: yapa.m4a / yapa.mp3
+            val sonidoUri = Uri.parse("android.resource://$packageName/raw/yapa")
+            val atributosAudio = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
 
             val canalServicio = NotificationChannel(
                 CANAL_SERVICIO,
@@ -128,10 +133,9 @@ class ServicioEscuchaYape : Service() {
             ).apply {
                 description = "Avisa cuando llega un usuario nuevo"
                 enableVibration(true)
-                setSound(sonidoYape, null)
+                setSound(sonidoUri, atributosAudio)
             }
 
-            // ✅ NUEVO: Canal para enlaces caídos
             val canalEnlaces = NotificationChannel(
                 CANAL_ENLACES,
                 "Enlaces Caídos",
@@ -139,7 +143,7 @@ class ServicioEscuchaYape : Service() {
             ).apply {
                 description = "Avisa cuando una transmisión falla"
                 enableVibration(true)
-                setSound(sonidoYape, null)
+                setSound(sonidoUri, atributosAudio)
             }
 
             val gestor = getSystemService(NotificationManager::class.java)
@@ -197,7 +201,6 @@ class ServicioEscuchaYape : Service() {
         db.child("pagos_esperando").addChildEventListener(escuchaPagos!!)
     }
 
-    // ✅ NUEVO: Escucha de enlaces caídos
     private fun escucharEnlacesCaidos() {
         escuchaEnlaces = object : ChildEventListener {
             override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
@@ -266,7 +269,7 @@ class MainActivity : ComponentActivity() {
 
     private val db = FirebaseDatabase.getInstance().reference
     private var avisosYape by mutableStateOf(listOf<AvisoYape>())
-    private var enlacesCaidos by mutableStateOf(listOf<EnlaceCaido>()) // ✅ NUEVO
+    private var enlacesCaidos by mutableStateOf(listOf<EnlaceCaido>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -282,7 +285,7 @@ class MainActivity : ComponentActivity() {
 
         pedirPermisosYActivarServicio()
         escucharListaEnTiempoReal()
-        escucharEnlacesCaidosEnApp() // ✅ NUEVO
+        escucharEnlacesCaidosEnApp()
         
         setContent { InterfazPrincipal() }
     }
@@ -356,7 +359,6 @@ class MainActivity : ComponentActivity() {
         })
     }
 
-    // ✅ NUEVO: Escucha enlaces caídos para la pantalla
     private fun escucharEnlacesCaidosEnApp() {
         db.child("enlaces_caidos").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
@@ -380,12 +382,10 @@ class MainActivity : ComponentActivity() {
         })
     }
 
-    // ✅ NUEVO: Borrar enlace caído
     private fun borrarEnlaceCaido(id: String) {
         db.child("enlaces_caidos").child(id).removeValue()
     }
 
-    // ✅ NUEVO: Borrar todos los enlaces caídos
     private fun limpiarEnlacesCaidos() {
         AlertDialog.Builder(this)
             .setTitle("⚠️ BORRAR ENLACES CAÍDOS")
@@ -504,7 +504,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ✅ NUEVO: Guardar/cargar enlaces caídos localmente
     private fun cargarEnlacesGuardados() {
         val texto = prefs.getString(ENLACES_CAIDOS_GUARDADO, "") ?: ""
         if (texto.isNotEmpty()) {
@@ -578,7 +577,6 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // ✅ NUEVO: Tarjetas de enlaces caídos ARRIBA DE TODO
                 if (enlacesCaidos.isNotEmpty()) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("⚠️ TRANSMISIONES CAÍDAS", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB71C1C))
